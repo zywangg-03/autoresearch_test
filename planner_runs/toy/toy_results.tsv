@@ -1,5 +1,0 @@
-idea_id	niche	predicted_score	toy_val_loss	delta_vs_baseline	status	seconds	params	title
-baseline	baseline		0.775364	0.000000	baseline	0.035	1669	Baseline tiny MLP
-lower_lr_cosine	lr_schedule	0.589915	1.204290	-0.428926	discard	0.023	1669	Lower LR with cosine warmdown
-adamw_weight_decay	optimizer	0.516268	0.735380	0.039984	keep	0.022	1669	Increase AdamW weight decay
-smaller_faster_model	efficiency	0.477584	0.804546	-0.029182	discard	0.022	1045	Smaller faster model

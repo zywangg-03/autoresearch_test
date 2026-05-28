@@ -1,0 +1,8 @@
+idea_id	niche	predicted_score	toy_val_loss	delta_vs_baseline	status	seconds	params	title
+baseline	baseline		1.588353	0.000000	baseline	1.358	1669	Baseline tiny MLP
+lower_lr_cosine	lr_schedule	0.589915	0.848085	0.740269	keep	1.354	1669	Lower LR with cosine warmdown
+adamw_weight_decay	optimizer	0.516268	1.251814	0.336540	keep	1.362	1669	Increase AdamW weight decay
+smaller_faster_model	efficiency	0.477584	1.228357	0.359996	keep	1.317	1045	Smaller faster model
+wider_hidden	architecture	0.472088	1.804444	-0.216090	discard	1.329	2501	Wider hidden dimension
+dropout_regularization	regularization	0.368623	1.022214	0.566140	keep	1.457	1669	Add small dropout regularization
+sgd_momentum	optimizer	0.290354	2.729451	-1.141098	discard	1.184	1669	SGD momentum optimizer
