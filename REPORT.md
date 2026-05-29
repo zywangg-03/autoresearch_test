@@ -1,12 +1,8 @@
-# Autoresearch Planner 前期验证报告
+# 前期验证报告
 
-## 1. 目标
+在 andrej karpathy autoresearch 训练循环之上增加一个研究规划层，对候选实验想法进行评分、去重、分组和选择。
 
-本项目在原始 `autoresearch` 训练循环之上增加一个研究规划层，用来在真正消耗 GPU 训练资源之前，对候选实验想法进行评分、去重、分组和选择。
-
-本次本机实验的目标是验证规划层本身是否可运行，而不是完成最终的大模型训练。完整训练仍需要连接到学校 GPU cluster 或其他 CUDA GPU 环境后继续完成。
-
-验证链路如下：
+验证链路：
 
 ```text
 候选想法 -> 预评分 -> archive/niche 选择 -> 小规模训练验证 -> keep/discard -> 更新 archive
@@ -52,7 +48,7 @@ for each idea i in I:
 return sort(I, by=score_i, descending=True)
 ```
 
-当前实现使用一个启发式 reward：
+当前实现使用如下 reward：
 
 ```text
 score =
@@ -103,24 +99,20 @@ return I_exec
 
 ## 3. Implementation
 
-本次实现主要新增了两个文件：
-
 - `research_planner.py`：实现 idea 数据结构、文本相似度、heuristic reward model、archive 记录和多样性选择。
 - `toy_research_validation.py`：实现一个小型 CPU proxy training，用来完整测试 planner 的闭环。
 
 最终输出文件位于：
 
-- `deliverable_runs/final_20260528/SUMMARY.md`
-- `deliverable_runs/final_20260528/toy_results.tsv`
-- `deliverable_runs/final_20260528/idea_archive.jsonl`
+- `final_20260528/SUMMARY.md`
+- `final_20260528/toy_results.tsv`
+- `final_20260528/idea_archive.jsonl`
 
 本机运行命令：
 
 ```bash
 python toy_research_validation.py --out-dir deliverable_runs/final_20260528 --fresh --k 6 --steps 5000
 ```
-
-本机环境中当前 PyTorch 没有 CUDA/MPS 可用，因此这里没有运行原始 `train.py` 的完整 GPT 训练，而是使用 CPU proxy task 做前期验证。
 
 ## 4. Initial Results
 
@@ -148,4 +140,4 @@ baseline toy_val_loss = 1.588353
 
 本次实验完成了前期设计验证：planner 能够对候选 idea 进行评分、按 niche 组织 archive、选择多样化实验，并根据小规模训练结果更新 keep/discard 状态。
 
-目前尚未完成原始 `train.py` 的完整 GPT 训练，因为本机没有可用 CUDA GPU，而连接学校 Great Lakes GPU cluster 需要 VPN、文件上传、环境配置和作业队列提交，短期内不太方便。下一步需要将该 repo 同步到学校 GPU cluster，在 CUDA 环境中把被标记为 `keep` 的 idea 转换为真实 `train.py` 修改，并用完整训练得到真实 `val_bpb` 结果。
+下一步需要将该 repo 同步到学校 GPU cluster，在 CUDA 环境中把被标记为 `keep` 的 idea 转换为真实 `train.py` 修改，并用完整训练得到真实 `val_bpb` 结果。
