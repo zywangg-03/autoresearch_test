@@ -1,44 +1,20 @@
-# Autoresearch Planner Feasibility Report
+# Autoresearch Planner 前期验证报告
 
-## 1. Objective
+## 1. 目标
 
-This project evaluates whether an autonomous research agent can use a structured planning layer to choose better experiments before spending GPU time. The original `autoresearch` baseline repeatedly edits `train.py`, runs a fixed-budget training job, and keeps or discards the change based on validation bits-per-byte (`val_bpb`). My extension adds a research-planning layer above that loop.
+本项目在原始 `autoresearch` 训练循环之上增加一个研究规划层，用来在真正消耗 GPU 训练资源之前，对候选实验想法进行评分、去重、分组和选择。
 
-The goal of this feasibility run is not to claim a final improvement on the full GPT training benchmark. Instead, it validates the following mechanism end to end:
+本次本机实验的目标是验证规划层本身是否可运行，而不是完成最终的大模型训练。完整训练仍需要连接到学校 GPU cluster 或其他 CUDA GPU 环境后继续完成。
 
-1. Generate candidate research ideas.
-2. Score each idea before execution.
-3. Store ideas in a structured archive by niche.
-4. Select a diverse batch of promising ideas.
-5. Execute a small training proxy locally.
-6. Update the archive with observed outcomes.
+验证链路如下：
 
-This gives an executable prototype of the reward/archive design and produces initial evidence that the planning loop works.
+```text
+候选想法 -> 预评分 -> archive/niche 选择 -> 小规模训练验证 -> keep/discard -> 更新 archive
+```
 
-## 2. Baseline System
+## 2. Pseudocode
 
-The original repository is intentionally minimal:
-
-- `prepare.py`: fixed data preparation, tokenizer, dataloader, and evaluation.
-- `train.py`: single-file GPT training implementation modified by agents.
-- `program.md`: instructions for autonomous experiment loops.
-
-The true benchmark metric is `val_bpb`, produced by the fixed evaluator in `prepare.py`. Lower is better. Each real training experiment is intended to run for a fixed 5-minute wall-clock budget on a CUDA GPU.
-
-## 3. Proposed Design
-
-The added planner introduces two components:
-
-1. A reward-style idea scorer that ranks candidate experiments before execution.
-2. An archive selector that keeps track of previously attempted ideas and promotes diversity across experiment categories.
-
-The main design motivation is that a naive autonomous loop can repeatedly try similar ideas or spend GPU time on experiments that are novel but unlikely to be feasible. The planner makes the selection process explicit and inspectable.
-
-## 4. Algorithm 1: Idea Reward Model
-
-The first stage scores each candidate idea using both prior evidence and archive redundancy.
-
-### Pseudocode
+### Algorithm 1: Reward Model / Idea Scoring
 
 ```text
 Input:
@@ -46,25 +22,24 @@ Input:
   candidate ideas I
   literature/evidence database L
   idea archive A
-  reward model R_phi
 
 Output:
-  ranked candidate ideas I_ranked
+  ranked ideas I_ranked
 
 for each idea i in I:
-    P_i <- retrieve_related_evidence(L, i)
+    related_papers <- retrieve(L, i)
 
-    literature_similarity <- max_similarity(i, P_i)
-    archive_similarity <- max_similarity(i, A)
+    S_lit <- max_similarity(i, related_papers)
+    S_arc <- max_similarity(i, A)
 
-    novelty <- 1 - literature_similarity
-    evidence <- literature_similarity
-    redundancy <- archive_similarity
+    novelty <- 1 - S_lit
+    evidence <- S_lit
+    redundancy <- S_arc
 
     usefulness, feasibility, risk, effort <- judge(i, T)
     simplicity <- 1 - effort
 
-    score_i <- R_phi(
+    score_i <- reward(
         usefulness,
         feasibility,
         evidence,
@@ -77,9 +52,7 @@ for each idea i in I:
 return sort(I, by=score_i, descending=True)
 ```
 
-### Practical Scoring Function
-
-The prototype uses a bootstrap heuristic:
+当前实现使用一个启发式 reward：
 
 ```text
 score =
@@ -92,13 +65,7 @@ score =
   - risk
 ```
 
-This is implemented in `research_planner.py` as `HeuristicRewardModel`. A learned reward model can later replace this heuristic once enough real experiments have been collected.
-
-## 5. Algorithm 2: Archive-Based Selection
-
-The second stage uses the ranked ideas to select a non-redundant and diverse execution set.
-
-### Pseudocode
+### Algorithm 2: Advanced Archive / Diverse Selection
 
 ```text
 Input:
@@ -110,119 +77,60 @@ Input:
   diversity weight lambda
 
 Output:
-  selected execution ideas I_exec
+  selected ideas I_exec
 
 for each idea i in I_ranked:
     n_i <- classify(i, N)
-    A[n_i] <- A[n_i] union {i}
+    add i into archive cell A[n_i]
 
-    remove near-duplicates in A[n_i]:
-        if similarity(i, j) >= t:
-            keep the idea with higher predicted score
+    if i is too similar to an existing idea:
+        keep the one with higher predicted score
 
 I_exec <- empty set
 
 while |I_exec| < K:
-    for each niche n in N:
-        best_score_n <- max predicted score among unselected ideas in A[n]
-        diversity_bonus_n <- marginal_diversity(A[n], I_exec)
-        niche_value_n <- best_score_n + lambda * diversity_bonus_n
+    for each niche n:
+        best_score <- max score among unselected ideas in A[n]
+        diversity_bonus <- marginal_diversity(A[n], I_exec)
+        niche_value <- best_score + lambda * diversity_bonus
 
-    n_star <- argmax niche_value_n
+    n_star <- argmax niche_value
     i_star <- best unselected idea in A[n_star]
-    I_exec <- I_exec union {i_star}
-    mark i_star as selected
+    add i_star to I_exec
 
 return I_exec
 ```
 
-This is implemented as `select_for_execution` in `research_planner.py`.
+## 3. Implementation
 
-## 6. Implementation Summary
+本次实现主要新增了两个文件：
 
-The prototype adds the following files:
+- `research_planner.py`：实现 idea 数据结构、文本相似度、heuristic reward model、archive 记录和多样性选择。
+- `toy_research_validation.py`：实现一个小型 CPU proxy training，用来完整测试 planner 的闭环。
 
-- `research_planner.py`: core idea, scoring, similarity, archive, and selection logic.
-- `toy_research_validation.py`: small CPU proxy training loop for end-to-end validation.
-- `PLANNER.md`: short usage and transfer notes.
-- `deliverable_runs/final_20260528/`: final run outputs.
+最终输出文件位于：
 
-The candidate idea representation includes:
+- `deliverable_runs/final_20260528/SUMMARY.md`
+- `deliverable_runs/final_20260528/toy_results.tsv`
+- `deliverable_runs/final_20260528/idea_archive.jsonl`
 
-- `idea_id`
-- `title`
-- `description`
-- `niche`
-- `patch_plan`
-- `tags`
-- `prior`
-- `risk`
-- `effort`
-
-The archive stores:
-
-- predicted score
-- niche
-- status
-- metric name
-- metric value
-- metric delta
-- notes
-
-## 7. Candidate Ideas Tested
-
-The local validation used six candidate ideas:
-
-| idea_id | niche | high-level idea |
-| --- | --- | --- |
-| lower_lr_cosine | lr_schedule | lower learning rate with cosine warmdown |
-| adamw_weight_decay | optimizer | add moderate AdamW weight decay |
-| smaller_faster_model | efficiency | trade capacity for more steps |
-| wider_hidden | architecture | increase hidden width |
-| dropout_regularization | regularization | add light dropout |
-| sgd_momentum | optimizer | explore SGD momentum |
-
-These ideas are proxies for the kinds of changes that could later be translated into the full `train.py` GPT training script.
-
-## 8. Local Validation Setup
-
-The local machine is a Mac environment without CUDA or MPS support in the current PyTorch installation:
-
-```text
-PyTorch: 2.11.0
-CUDA available: false
-MPS available: false
-```
-
-Because the original `train.py` depends on CUDA-oriented kernels, full GPT training was not run locally. Instead, the project runs a complete CPU proxy validation through `toy_research_validation.py`.
-
-The proxy task is intentionally small but still exercises the full planner loop:
-
-```text
-candidate ideas -> scoring -> niche/archive selection -> training -> keep/discard -> archive update
-```
-
-Command used:
+本机运行命令：
 
 ```bash
 python toy_research_validation.py --out-dir deliverable_runs/final_20260528 --fresh --k 6 --steps 5000
 ```
 
-Wall-clock runtime:
+本机环境中当前 PyTorch 没有 CUDA/MPS 可用，因此这里没有运行原始 `train.py` 的完整 GPT 训练，而是使用 CPU proxy task 做前期验证。
 
-```text
-10.63 seconds
-```
+## 4. Initial Results
 
-## 9. Initial Results
-
-The baseline proxy validation loss was:
+本次共测试 6 个候选 idea，baseline proxy validation loss 为：
 
 ```text
 baseline toy_val_loss = 1.588353
 ```
 
-Full result table:
+结果如下：
 
 | idea_id | niche | predicted_score | toy_val_loss | delta_vs_baseline | status |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -234,52 +142,10 @@ Full result table:
 | dropout_regularization | regularization | 0.368623 | 1.022214 | +0.566140 | keep |
 | sgd_momentum | optimizer | 0.290354 | 2.729451 | -1.141098 | discard |
 
-Four of the six selected ideas improved the proxy metric relative to baseline, while two were correctly recorded as failed directions for the archive.
+其中 4 个 idea 在 proxy task 上优于 baseline，被标记为 `keep`；2 个 idea 表现更差，被标记为 `discard`。这说明 archive 能记录成功和失败方向，后续选择时可以避免重复尝试相似低效方案。
 
-## 10. Interpretation
+## 5. 结论与后续工作
 
-The result demonstrates that the proposed planner is operational:
+本次实验完成了前期设计验证：planner 能够对候选 idea 进行评分、按 niche 组织 archive、选择多样化实验，并根据小规模训练结果更新 keep/discard 状态。
 
-1. It can rank heterogeneous candidate ideas.
-2. It can select ideas across multiple niches.
-3. It can execute a training proxy without manual intervention.
-4. It can record structured outcomes in an archive.
-5. It can distinguish useful ideas from unsuccessful ideas in the local proxy setting.
-
-The experiment does not yet prove improvement on the full GPT training benchmark. It does, however, validate the software architecture needed to run such experiments more systematically once GPU resources are available.
-
-## 11. GPU Cluster Status
-
-The next step would normally be to run selected ideas on a CUDA GPU, such as the University of Michigan Great Lakes cluster or a local NVIDIA GPU laptop. That would allow the selected ideas to be translated into `train.py` patches and evaluated using the real `val_bpb` metric.
-
-At this stage, connecting to the school GPU cluster is temporarily inconvenient because it requires VPN access, environment setup, file transfer, and queue submission. To avoid blocking the feasibility validation on cluster logistics, I completed the full local planner/proxy training loop instead. This gives a complete and reproducible local run while leaving full GPU training as the next experimental stage.
-
-## 12. Next Steps
-
-The recommended next stage is:
-
-1. Transfer the repository to a CUDA GPU environment.
-2. Run `uv sync` and `uv run prepare.py --num-shards 2` for a small data setup.
-3. Start from the selected ideas marked `keep`.
-4. Translate each idea's `patch_plan` into a controlled `train.py` change.
-5. Run `uv run train.py` and record `val_bpb`.
-6. Feed real `val_bpb` deltas back into the archive.
-
-Once enough real experiments are collected, the heuristic reward model can be replaced with a learned model trained on actual experiment outcomes.
-
-## 13. Reproducibility Files
-
-Final local deliverables:
-
-- `deliverable_runs/final_20260528/SUMMARY.md`
-- `deliverable_runs/final_20260528/toy_results.tsv`
-- `deliverable_runs/final_20260528/idea_archive.jsonl`
-- `research_planner.py`
-- `toy_research_validation.py`
-- `PLANNER.md`
-
-The run can be reproduced locally with:
-
-```bash
-python toy_research_validation.py --out-dir deliverable_runs/final_20260528 --fresh --k 6 --steps 5000
-```
+目前尚未完成原始 `train.py` 的完整 GPT 训练，因为本机没有可用 CUDA GPU，而连接学校 Great Lakes GPU cluster 需要 VPN、文件上传、环境配置和作业队列提交，短期内不太方便。下一步需要将该 repo 同步到学校 GPU cluster，在 CUDA 环境中把被标记为 `keep` 的 idea 转换为真实 `train.py` 修改，并用完整训练得到真实 `val_bpb` 结果。
